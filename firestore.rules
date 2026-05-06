@@ -1,0 +1,177 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+  
+    // Global Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Primitive Helpers
+    function isSignedIn() { 
+      return request.auth != null; 
+    }
+    
+    function isValidId(id) { 
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
+    }
+    
+    function incoming() { 
+      return request.resource.data; 
+    }
+    
+    function existing() { 
+      return resource.data; 
+    }
+    
+    // Entity Validations
+    function isValidUser(data) {
+      return data.displayName is string && data.displayName.size() <= 64 &&
+             data.email is string && data.email.size() <= 128 &&
+             data.isOnline is bool &&
+             (data.get('photoURL', '') is string && data.get('photoURL', '').size() <= 500) &&
+             (data.get('lastSeen', request.time) is timestamp) &&
+             (data.get('shortId', '') is string && data.get('shortId', '').size() <= 10) &&
+             (data.get('statusMessage', '') is string && data.get('statusMessage', '').size() <= 200) &&
+             (data.get('blockedUsers', []) is list) &&
+             (data.get('archivedChats', []) is list) &&
+             (data.get('pinnedChats', []) is list) &&
+             (data.get('lockedChats', []) is list);
+    }
+    
+    function isValidChat(data) {
+      return data.keys().hasAll(['type', 'participants', 'updatedAt']) &&
+             data.type is string && (data.type == 'direct' || data.type == 'group' || data.type == 'community' || data.type == 'channel') &&
+             data.participants is list && data.participants.size() >= 0 && data.participants.size() <= 256 &&
+             (data.participants.size() > 0 ? data.participants[0] is string : true) &&
+             data.updatedAt is timestamp &&
+             (data.get('lastMessage', '') is string && data.get('lastMessage', '').size() <= 2000) &&
+             (data.get('name', '') is string && data.get('name', '').size() <= 128) &&
+             (data.get('typing', {}) is map);
+    }
+    
+    function isValidMessage(data) {
+      return data.keys().hasAll(['text', 'senderId', 'createdAt', 'status']) &&
+             data.text is string && data.text.size() <= 5000 &&
+             data.senderId is string &&
+             data.createdAt is timestamp &&
+             data.status is string && (data.status == 'sent' || data.status == 'delivered' || data.status == 'read') &&
+             (data.keys().hasAny(['mediaUrl']) ? 
+               (data.mediaUrl is string && data.mediaUrl.size() <= 1000 && 
+                data.mediaType is string && (data.mediaType == 'image' || data.mediaType == 'video' || data.mediaType == 'audio')) 
+               : true) &&
+             (data.keys().hasAny(['deleted']) ? data.deleted is bool : true) &&
+             (data.keys().hasAny(['replyToId']) ? data.replyToId is string && data.replyToId.size() <= 128 : true) &&
+             (data.keys().hasAny(['reactions']) ? data.reactions is map : true);
+    }
+
+    function isValidCall(data) {
+      return data.keys().hasAll(['callerId', 'receiverId', 'type', 'status', 'createdAt']) &&
+             data.callerId is string && data.receiverId is string &&
+             (data.type == 'voice' || data.type == 'video') &&
+             (data.status == 'ringing' || data.status == 'accepted' || data.status == 'rejected' || data.status == 'ended' || data.status == 'missed') &&
+             data.createdAt is timestamp;
+    }
+
+    // Rules
+    match /users/{userId} {
+      allow read: if isSignedIn(); // All authenticated users can read users list
+      allow create: if isSignedIn() && 
+                    isValidId(userId) && 
+                    userId == request.auth.uid &&
+                    request.auth.token.email_verified == true &&
+                    isValidUser(incoming()) && 
+                    incoming().keys().size() <= 6;
+      allow update: if isSignedIn() && 
+                    userId == request.auth.uid &&
+                    isValidUser(incoming()) &&
+                    (
+                      // Action: Update Profile
+                      incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'statusMessage']) ||
+                      // Action: Update Presence
+                      incoming().diff(existing()).affectedKeys().hasOnly(['isOnline', 'lastSeen']) ||
+                      // Action: Setup ShortId
+                      incoming().diff(existing()).affectedKeys().hasOnly(['shortId']) ||
+                      // Action: Update User Settings (block, archive, pin, lock)
+                      incoming().diff(existing()).affectedKeys().hasOnly(['blockedUsers', 'archivedChats', 'pinnedChats', 'lockedChats'])
+                    );
+    }
+    
+    match /chats/{chatId} {
+      // Users can only view chats they are part of
+      allow read: if isSignedIn() && 
+                  isValidId(chatId) &&
+                  request.auth.uid in existing().participants;
+                  
+      // Users can only list chats where they are in the participants array
+      allow list: if isSignedIn() && 
+                  request.auth.uid in resource.data.participants;
+                  
+      allow create: if isSignedIn() && 
+                    isValidId(chatId) &&
+                    request.auth.token.email_verified == true &&
+                    isValidChat(incoming()) && 
+                    request.auth.uid in incoming().participants;
+                    
+      allow update: if isSignedIn() && 
+                    isValidId(chatId) &&
+                    request.auth.uid in existing().participants &&
+                    isValidChat(incoming()) &&
+                    incoming().type == existing().type && // type is immutable
+                    (
+                      // Action: Update Last Message info
+                      incoming().diff(existing()).affectedKeys().hasOnly(['updatedAt', 'lastMessage']) ||
+                      // Action: Update Group Name
+                      incoming().diff(existing()).affectedKeys().hasOnly(['name', 'updatedAt']) ||
+                      // Action: Update Typing
+                      incoming().diff(existing()).affectedKeys().hasOnly(['typing']) ||
+                      // Action: Modify Participants
+                      incoming().diff(existing()).affectedKeys().hasOnly(['participants', 'updatedAt'])
+                    );
+    }
+    
+    match /chats/{chatId}/messages/{messageId} {
+      allow read: if isSignedIn() && 
+                  isValidId(chatId) &&
+                  isValidId(messageId) &&
+                  request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+                  
+      allow list: if isSignedIn() && 
+                  isValidId(chatId) &&
+                  request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+                  
+      allow create: if isSignedIn() && 
+                    isValidId(chatId) &&
+                    isValidId(messageId) &&
+                    request.auth.token.email_verified == true &&
+                    request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants &&
+                    isValidMessage(incoming()) &&
+                    incoming().senderId == request.auth.uid && // Check ownership on create
+                    incoming().createdAt == request.time &&
+                    incoming().keys().size() <= 10;
+                    
+      allow update: if isSignedIn() && 
+                    isValidId(chatId) &&
+                    isValidId(messageId) &&
+                    request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants &&
+                    (
+                      // Action: Update status (delivered, read)
+                      (incoming().diff(existing()).affectedKeys().hasOnly(['status']) && incoming().status is string && (incoming().status == 'sent' || incoming().status == 'delivered' || incoming().status == 'read')) ||
+                      // Action: Edit message text (only sender)
+                      (existing().senderId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['text']) && incoming().text is string && incoming().text.size() <= 5000) ||
+                      // Action: Delete message (only sender)
+                      (existing().senderId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['text', 'deleted']) && incoming().deleted is bool && incoming().text == 'This message was deleted') ||
+                      // Action: Update reactions
+                      (incoming().diff(existing()).affectedKeys().hasOnly(['reactions']) && incoming().reactions is map)
+                    );
+    }
+    
+    match /calls/{callId} {
+      allow read: if isSignedIn() && isValidId(callId) && (request.auth.uid == resource.data.callerId || request.auth.uid == resource.data.receiverId);
+      allow list: if isSignedIn() && (resource.data.callerId == request.auth.uid || resource.data.receiverId == request.auth.uid);
+      allow create: if isSignedIn() && isValidId(callId) && isValidCall(incoming()) && (request.auth.uid == incoming().callerId);
+      allow update: if isSignedIn() && isValidId(callId) && isValidCall(incoming()) && (request.auth.uid == existing().callerId || request.auth.uid == existing().receiverId);
+    }
+  }
+}

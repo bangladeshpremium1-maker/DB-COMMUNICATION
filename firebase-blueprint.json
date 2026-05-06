@@ -1,0 +1,87 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string", "description": "User's display name" },
+        "photoURL": { "type": "string", "description": "Avatar URL" },
+        "email": { "type": "string", "description": "User's email" },
+        "isOnline": { "type": "boolean", "description": "Presence status" },
+        "lastSeen": { "type": "timestamp", "description": "Last time user was active" },
+        "shortId": { "type": "string", "description": "5-digit short id" },
+        "statusMessage": { "type": "string", "description": "User's custom status message" }
+      },
+      "required": ["displayName", "email"]
+    },
+    "Chat": {
+      "title": "Chat",
+      "description": "A conversation between users",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["direct", "group"] },
+        "participants": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of user UIDs"
+        },
+        "updatedAt": { "type": "timestamp", "description": "Last modification time" },
+        "lastMessage": { "type": "string" },
+        "name": { "type": "string", "description": "Group name (optional)" },
+        "typing": { "type": "object", "description": "Map of user UIDs to typing status" }
+      },
+      "required": ["type", "participants", "updatedAt"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "A single message in a chat",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "senderId": { "type": "string" },
+        "createdAt": { "type": "timestamp" },
+        "status": { "type": "string", "enum": ["sent", "delivered", "read"] },
+        "mediaUrl": { "type": "string", "description": "Cloudinary URL for media" },
+        "mediaType": { "type": "string", "enum": ["image", "video", "audio"] },
+        "deleted": { "type": "boolean", "description": "Whether the message was deleted" },
+        "replyToId": { "type": "string", "description": "ID of the message being replied to" },
+        "reactions": { "type": "object", "description": "Map of user UIDs to emoji reactions" }
+      },
+      "required": ["text", "senderId", "createdAt", "status"]
+    },
+    "Call": {
+      "title": "Call",
+      "description": "Voice or video call session",
+      "type": "object",
+      "properties": {
+        "callerId": { "type": "string" },
+        "receiverId": { "type": "string" },
+        "type": { "type": "string", "enum": ["voice", "video"] },
+        "status": { "type": "string", "enum": ["ringing", "accepted", "rejected", "ended", "missed"] },
+        "offer": { "type": "object", "description": "WebRTC offer payload" },
+        "answer": { "type": "object", "description": "WebRTC answer payload" },
+        "createdAt": { "type": "timestamp" }
+      },
+      "required": ["callerId", "receiverId", "type", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profiles"
+    },
+    "chats/{chatId}": {
+      "schema": { "$ref": "#/entities/Chat" },
+      "description": "Chat sessions"
+    },
+    "chats/{chatId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/Message" },
+      "description": "Messages inside a chat resource"
+    },
+    "calls/{callId}": {
+      "schema": { "$ref": "#/entities/Call" },
+      "description": "Active and past call sessions"
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "ChatConnect",
+  "description": "A high-performance, real-time messaging application.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": []
+}

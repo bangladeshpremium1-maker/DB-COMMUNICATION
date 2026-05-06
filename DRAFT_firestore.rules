@@ -1,0 +1,139 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+  
+    // Global Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Primitive Helpers
+    function isSignedIn() { 
+      return request.auth != null; 
+    }
+    
+    function isValidId(id) { 
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
+    }
+    
+    function incoming() { 
+      return request.resource.data; 
+    }
+    
+    function existing() { 
+      return resource.data; 
+    }
+    
+    // Entity Validations
+    function isValidUser(data) {
+      return data.keys().hasAll(['displayName', 'email', 'isOnline']) &&
+             data.displayName is string && data.displayName.size() <= 64 &&
+             data.email is string && data.email.size() <= 128 &&
+             data.isOnline is bool &&
+             (data.get('photoURL', '') is string && data.get('photoURL', '').size() <= 500) &&
+             (data.get('lastSeen', request.time) is timestamp);
+    }
+    
+    function isValidChat(data) {
+      return data.keys().hasAll(['type', 'participants', 'updatedAt']) &&
+             data.type is string && (data.type == 'direct' || data.type == 'group') &&
+             data.participants is list && data.participants.size() > 0 && data.participants.size() <= 256 &&
+             data.participants[0] is string &&
+             data.updatedAt is timestamp &&
+             (data.get('lastMessage', '') is string && data.get('lastMessage', '').size() <= 2000) &&
+             (data.get('name', '') is string && data.get('name', '').size() <= 128);
+    }
+    
+    function isValidMessage(data) {
+      return data.keys().hasAll(['text', 'senderId', 'createdAt', 'status']) &&
+             data.text is string && data.text.size() <= 5000 &&
+             data.senderId is string && data.senderId == request.auth.uid &&
+             data.createdAt is timestamp &&
+             data.status is string && (data.status == 'sent' || data.status == 'delivered' || data.status == 'read');
+    }
+
+    // Rules
+    match /users/{userId} {
+      allow read: if isSignedIn(); // All authenticated users can read users list
+      allow create: if isSignedIn() && 
+                    isValidId(userId) && 
+                    userId == request.auth.uid &&
+                    request.auth.token.email_verified == true &&
+                    isValidUser(incoming()) && 
+                    incoming().keys().size() <= 5;
+      allow update: if isSignedIn() && 
+                    userId == request.auth.uid &&
+                    isValidUser(incoming()) &&
+                    (
+                      // Action: Update Profile
+                      incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL']) ||
+                      // Action: Update Presence
+                      incoming().diff(existing()).affectedKeys().hasOnly(['isOnline', 'lastSeen'])
+                    );
+    }
+    
+    match /chats/{chatId} {
+      // Users can only view chats they are part of
+      allow read: if isSignedIn() && 
+                  isValidId(chatId) &&
+                  request.auth.uid in existing().participants;
+                  
+      // Users can only list chats where they are in the participants array
+      allow list: if isSignedIn() && 
+                  request.auth.uid in resource.data.participants;
+                  
+      allow create: if isSignedIn() && 
+                    isValidId(chatId) &&
+                    request.auth.token.email_verified == true &&
+                    isValidChat(incoming()) && 
+                    request.auth.uid in incoming().participants;
+                    
+      allow update: if isSignedIn() && 
+                    isValidId(chatId) &&
+                    request.auth.uid in existing().participants &&
+                    isValidChat(incoming()) &&
+                    incoming().participants == existing().participants && // participants are immutable for now
+                    incoming().type == existing().type && // type is immutable
+                    (
+                      // Action: Update Last Message info
+                      incoming().diff(existing()).affectedKeys().hasOnly(['updatedAt', 'lastMessage']) ||
+                      // Action: Update Group Name
+                      incoming().diff(existing()).affectedKeys().hasOnly(['name', 'updatedAt'])
+                    );
+    }
+    
+    match /chats/{chatId}/messages/{messageId} {
+      allow read: if isSignedIn() && 
+                  isValidId(chatId) &&
+                  isValidId(messageId) &&
+                  request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+                  
+      allow list: if isSignedIn() && 
+                  isValidId(chatId) &&
+                  request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+                  
+      allow create: if isSignedIn() && 
+                    isValidId(chatId) &&
+                    isValidId(messageId) &&
+                    request.auth.token.email_verified == true &&
+                    request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants &&
+                    isValidMessage(incoming()) &&
+                    incoming().createdAt == request.time &&
+                    incoming().keys().size() <= 4;
+                    
+      allow update: if isSignedIn() && 
+                    isValidId(chatId) &&
+                    isValidId(messageId) &&
+                    request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants &&
+                    isValidMessage(incoming()) &&
+                    incoming().text == existing().text &&
+                    incoming().senderId == existing().senderId &&
+                    incoming().createdAt == existing().createdAt &&
+                    (
+                      // Action: Update status (delivered, read)
+                      incoming().diff(existing()).affectedKeys().hasOnly(['status'])
+                    );
+    }
+  }
+}
