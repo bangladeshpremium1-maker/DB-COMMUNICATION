@@ -37,7 +37,10 @@ export default function App() {
         };
         setCurrentUser(u);
         
-        // Presence and Profile setup
+        // Immediately allow entry to app
+        setLoading(false);
+        
+        // Presence and Profile setup in background
         try {
           const userRef = doc(db, 'users', user.uid);
           const userSnap = await getDoc(userRef);
@@ -52,7 +55,11 @@ export default function App() {
                photoURL: u.photoURL,
                isOnline: true,
                lastSeen: serverTimestamp(),
-               shortId: newId
+               shortId: newId,
+               blockedUsers: [],
+               archivedChats: [],
+               pinnedChats: [],
+               lockedChats: []
              });
              localStorage.removeItem('pending_phone');
           } else {
@@ -70,17 +77,17 @@ export default function App() {
              }
           }
         } catch (e) {
-          handleFirestoreError(e, OperationType.WRITE, `users/${user.uid}`);
+          console.error("Profile sync error:", e);
         }
       } else {
         setCurrentUser(null);
         setCurrentUserDoc(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
 
     return () => unsub();
-  }, [setCurrentUser]);
+  }, [setCurrentUser, setCurrentUserDoc]);
 
   // User Data Sync Effect
   useEffect(() => {

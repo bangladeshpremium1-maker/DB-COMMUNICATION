@@ -31,6 +31,7 @@ service cloud.firestore {
              data.email is string && data.email.size() <= 128 &&
              data.isOnline is bool &&
              (data.get('photoURL', '') is string && data.get('photoURL', '').size() <= 500) &&
+             (data.get('phoneNumber', '') is string && data.get('phoneNumber', '').size() <= 20) &&
              (data.get('lastSeen', request.time) is timestamp) &&
              (data.get('shortId', '') is string && data.get('shortId', '').size() <= 10) &&
              (data.get('statusMessage', '') is string && data.get('statusMessage', '').size() <= 200) &&
@@ -80,15 +81,14 @@ service cloud.firestore {
       allow create: if isSignedIn() && 
                     isValidId(userId) && 
                     userId == request.auth.uid &&
-                    request.auth.token.email_verified == true &&
                     isValidUser(incoming()) && 
-                    incoming().keys().size() <= 6;
+                    incoming().keys().size() <= 12;
       allow update: if isSignedIn() && 
                     userId == request.auth.uid &&
                     isValidUser(incoming()) &&
                     (
                       // Action: Update Profile
-                      incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'statusMessage']) ||
+                      incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'statusMessage', 'phoneNumber']) ||
                       // Action: Update Presence
                       incoming().diff(existing()).affectedKeys().hasOnly(['isOnline', 'lastSeen']) ||
                       // Action: Setup ShortId
@@ -110,7 +110,6 @@ service cloud.firestore {
                   
       allow create: if isSignedIn() && 
                     isValidId(chatId) &&
-                    request.auth.token.email_verified == true &&
                     isValidChat(incoming()) && 
                     request.auth.uid in incoming().participants;
                     
@@ -144,7 +143,6 @@ service cloud.firestore {
       allow create: if isSignedIn() && 
                     isValidId(chatId) &&
                     isValidId(messageId) &&
-                    request.auth.token.email_verified == true &&
                     request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants &&
                     isValidMessage(incoming()) &&
                     incoming().senderId == request.auth.uid && // Check ownership on create

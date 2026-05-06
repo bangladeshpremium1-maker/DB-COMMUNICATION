@@ -13,17 +13,31 @@ export function Auth() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!email || !password) return;
+    
     setLoading(true);
     setError(null);
     try {
       if (isLogin) {
-        await loginWithEmail(email, password);
+        try {
+          await loginWithEmail(email, password);
+        } catch (err: any) {
+          // If user doesn't exist, maybe try to sign them up? 
+          // No, better to show the error but make it readable.
+          if (err.code === 'auth/user-not-found') {
+            setError('Account not found. Please sign up instead.');
+          } else if (err.code === 'auth/wrong-password') {
+            setError('Incorrect password. Please try again.');
+          } else if (err.code === 'auth/invalid-credential') {
+            setError('Invalid credentials. Check your email and password.');
+          } else {
+            setError(err.message || 'Login failed');
+          }
+        }
       } else {
         if (!name.trim()) throw new Error('Name is required');
         if (!phone.trim()) throw new Error('Phone number is required');
-        const userCredential = await signUpWithEmail(email, password, name);
-        // We'll store the phone number in localStorage temporarily so App.tsx can pick it up
-        // because signUpWithEmail doesn't save to Firestore directly.
+        await signUpWithEmail(email, password, name);
         localStorage.setItem('pending_phone', phone);
       }
     } catch (err: any) {
