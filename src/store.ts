@@ -16,6 +16,7 @@ interface UserDoc extends User {
   lastSeen?: any;
   shortId?: string;
   statusMessage?: string;
+  phoneNumber?: string;
 }
 
 interface AppState {

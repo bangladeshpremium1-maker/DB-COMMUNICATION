@@ -166,6 +166,7 @@ export function ChatWindow() {
   };
 
   const [isUploading, setIsUploading] = useState(false);
+  const [isAITyping, setIsAITyping] = useState(false);
   const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [replyingTo, setReplyingTo] = useState<any | null>(null);
@@ -195,43 +196,44 @@ export function ChatWindow() {
   const isArchived = currentUserDoc?.archivedChats?.includes(selectedChatId);
   const isLocked = currentUserDoc?.lockedChats?.includes(selectedChatId);
 
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
   const [exportWithMedia, setExportWithMedia] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
 
   const handleExportChat = () => {
-     let content = `Chat Export - ${chat?.name || otherUser?.displayName}\n\n`;
-     messages.forEach(m => {
-        const sender = m.senderId === currentUser?.uid ? 'You' : users.find(u => u.uid === m.senderId || u.id === m.senderId)?.displayName || 'Unknown';
-        content += `[${format(m.createdAt instanceof Date ? m.createdAt : new Date(m.createdAt?.seconds * 1000 || Date.now()), 'PP pp')}] ${sender}: ${m.text}\n`;
-        if (exportWithMedia && m.mediaUrl) {
-           content += `[Media Attachment: ${m.mediaUrl}]\n`;
-        }
-     });
-     
-     const blob = new Blob([content], { type: 'text/plain' });
-     const url = URL.createObjectURL(blob);
-     const a = document.createElement('a');
-     a.href = url;
-     a.download = `WhatsApp_Chat_${chat?.name || otherUser?.displayName}.txt`;
-     a.click();
-     URL.revokeObjectURL(url);
-     setShowExportModal(false);
+    let content = `Chat Export - ${chat?.name || otherUser?.displayName}\n\n`;
+    messages.forEach(m => {
+      const sender = m.senderId === currentUser?.uid ? 'You' : users.find(u => u.uid === m.senderId || u.id === m.senderId)?.displayName || 'Unknown';
+      content += `[${format(m.createdAt instanceof Date ? m.createdAt : new Date(m.createdAt?.seconds * 1000 || Date.now()), 'PP pp')}] ${sender}: ${m.text}\n`;
+      if (exportWithMedia && m.mediaUrl) {
+        content += `[Media Attachment: ${m.mediaUrl}]\n`;
+      }
+    });
+
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `WhatsApp_Chat_${chat?.name || otherUser?.displayName}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setShowExportModal(false);
   };
 
   const handleUserPreference = async (type: 'blockedUsers' | 'pinnedChats' | 'archivedChats' | 'lockedChats', targetId: string, currentStatus: boolean) => {
-      if (!currentUser) return;
-      try {
-          const currentArray = currentUserDoc?.[type] || [];
-          const newArray = currentStatus 
-             ? currentArray.filter((id: string) => id !== targetId) 
-             : [...currentArray, targetId];
-             
-          await updateDoc(doc(db, 'users', currentUser.uid), {
-             [type]: newArray
-          });
-      } catch (err) {
-          console.error(`Error updating ${type}:`, err);
-      }
+    if (!currentUser) return;
+    try {
+      const currentArray = currentUserDoc?.[type] || [];
+      const newArray = currentStatus
+        ? currentArray.filter((id: string) => id !== targetId)
+        : [...currentArray, targetId];
+
+      await updateDoc(doc(db, 'users', currentUser.uid), {
+        [type]: newArray
+      });
+    } catch (err) {
+      console.error(`Error updating ${type}:`, err);
+    }
   };
 
   const handleEdit = (msg: any) => {
@@ -247,21 +249,21 @@ export function ChatWindow() {
 
   const handleReaction = async (msgId: string, emoji: string) => {
     try {
-        const msg = messages.find(m => m.id === msgId);
-        if (!msg || !currentUser) return;
-        
-        const currentReactions = msg.reactions || {};
-        const newReactions = { ...currentReactions };
-        
-        if (newReactions[currentUser.uid] === emoji) {
-            delete newReactions[currentUser.uid];
-        } else {
-            newReactions[currentUser.uid] = emoji;
-        }
+      const msg = messages.find(m => m.id === msgId);
+      if (!msg || !currentUser) return;
 
-        await updateDoc(doc(db, `chats/${selectedChatId}/messages`, msgId), {
-            reactions: newReactions
-        });
+      const currentReactions = msg.reactions || {};
+      const newReactions = { ...currentReactions };
+
+      if (newReactions[currentUser.uid] === emoji) {
+        delete newReactions[currentUser.uid];
+      } else {
+        newReactions[currentUser.uid] = emoji;
+      }
+
+      await updateDoc(doc(db, `chats/${selectedChatId}/messages`, msgId), {
+        reactions: newReactions
+      });
     } catch (e) {
       console.error(e);
     }
@@ -270,10 +272,10 @@ export function ChatWindow() {
 
   const handleDelete = async (msgId: string) => {
     try {
-        await updateDoc(doc(db, `chats/${selectedChatId}/messages`, msgId), {
-            text: 'This message was deleted',
-            deleted: true
-        });
+      await updateDoc(doc(db, `chats/${selectedChatId}/messages`, msgId), {
+        text: 'This message was deleted',
+        deleted: true
+      });
     } catch (e) {
       console.error(e);
     }
@@ -297,15 +299,13 @@ export function ChatWindow() {
 
     setIsUploading(true);
     try {
-      // 1. Get Signature
       const sigRes = await fetch('/api/cloudinary/signature', { method: 'POST' });
       const sigData = await sigRes.json();
-      
+
       if (!sigData.cloudName) {
-         throw new Error("Cloudinary not configured properly");
+        throw new Error("Cloudinary not configured properly");
       }
 
-      // 2. Upload to Cloudinary
       const formData = new FormData();
       formData.append('file', file);
       formData.append('api_key', sigData.apiKey);
@@ -323,11 +323,9 @@ export function ChatWindow() {
 
       let mediaType = 'image';
       if (uploadedFile.resource_type === 'video') {
-         // Could be audio or video
-         mediaType = file.type.startsWith('audio/') ? 'audio' : 'video';
+        mediaType = file.type.startsWith('audio/') ? 'audio' : 'video';
       }
 
-      // 3. Send Message
       const messageCol = collection(db, `chats/${selectedChatId}/messages`);
       await addDoc(messageCol, {
         text: 'Sent media',
@@ -364,81 +362,80 @@ export function ChatWindow() {
 
   const handleSend = async () => {
     if (!inputText.trim() || !currentUser || !selectedChatId) return;
-    
-    // AI Chat logic
+
     const isAIChat = otherUser?.id === 'meta-ai';
     const text = inputText.trim();
 
     if (editingMessageId) {
-       // Edit
-       try {
-         await updateDoc(doc(db, `chats/${selectedChatId}/messages`, editingMessageId), {                
-            text: text
-         });
-         setEditingMessageId(null);
-       } catch (e) {
-         handleFirestoreError(e, OperationType.UPDATE, `chats/${selectedChatId}/messages/${editingMessageId}`);
-       }
+      try {
+        await updateDoc(doc(db, `chats/${selectedChatId}/messages`, editingMessageId), {
+          text: text
+        });
+        setEditingMessageId(null);
+      } catch (e) {
+        handleFirestoreError(e, OperationType.UPDATE, `chats/${selectedChatId}/messages/${editingMessageId}`);
+      }
     } else {
-       // Create
-       try {
-         const messageCol = collection(db, `chats/${selectedChatId}/messages`);
-         const newMsg: any = {
-           text,
-           senderId: currentUser.uid,
-           createdAt: serverTimestamp(),
-           status: 'sent'
-         };
-         if (replyingTo) {
-           newMsg.replyToId = replyingTo.id;
-         }
-         await addDoc(messageCol, newMsg);
-   
-         await updateDoc(doc(db, 'chats', selectedChatId), {
-           lastMessage: text,
-           updatedAt: serverTimestamp()
-         });
-         setReplyingTo(null);
+      try {
+        const messageCol = collection(db, `chats/${selectedChatId}/messages`);
+        const newMsg: any = {
+          text,
+          senderId: currentUser.uid,
+          createdAt: serverTimestamp(),
+          status: 'sent'
+        };
+        if (replyingTo) {
+          newMsg.replyToId = replyingTo.id;
+        }
+        await addDoc(messageCol, newMsg);
 
-         if (isAIChat) {
-            // Get history
-            const history = messages
-                .filter(m => !m.deleted)
-                .map(m => ({
-                    role: m.senderId === currentUser.uid ? 'user' : 'model',
-                    parts: [{ text: m.text }]
-                }));
-            
-            // Call AI
+        await updateDoc(doc(db, 'chats', selectedChatId), {
+          lastMessage: text,
+          updatedAt: serverTimestamp()
+        });
+        setReplyingTo(null);
+
+        if (isAIChat) {
+          const history = messages
+            .filter(m => !m.deleted)
+            .map(m => ({
+              role: m.senderId === currentUser.uid ? 'user' : 'model',
+              parts: [{ text: m.text }]
+            }));
+
+          setIsAITyping(true);
+          try {
             const { aiService } = await import('../services/aiService');
             const aiResponse = await aiService.sendMessage(text, history as any);
-            
+
             await addDoc(messageCol, {
-                text: aiResponse,
-                senderId: 'meta-ai',
-                createdAt: serverTimestamp(),
-                status: 'sent'
+              text: aiResponse,
+              senderId: 'meta-ai',
+              createdAt: serverTimestamp(),
+              status: 'sent'
             });
 
             await updateDoc(doc(db, 'chats', selectedChatId), {
-                lastMessage: aiResponse,
-                updatedAt: serverTimestamp()
+              lastMessage: aiResponse,
+              updatedAt: serverTimestamp()
             });
-         }
-       } catch (e) {
-         handleFirestoreError(e, OperationType.CREATE, `chats/${selectedChatId}/messages`);
-       }
+          } finally {
+            setIsAITyping(false);
+          }
+        }
+      } catch (e) {
+        handleFirestoreError(e, OperationType.CREATE, `chats/${selectedChatId}/messages`);
+      }
     }
 
     setInputText('');
-    
-    // Clear typing indicator instantly on send
+
     if (isTypingRef.current) {
-        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-        isTypingRef.current = false;
-        updateDoc(doc(db, 'chats', selectedChatId), {
-            [`typing.${currentUser.uid}`]: false
-        }).catch(console.error);
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      isTypingRef.current = false;
+      updateDoc(doc(db, 'chats', selectedChatId), {
+        [`typing.${currentUser.uid}`]: false
+      }).catch(console.error);
     }
   };
 
@@ -452,7 +449,7 @@ export function ChatWindow() {
   if (!chat || (!otherUser && chat.type === 'direct')) return null;
 
   const chatName = chat.name || otherUser?.displayName || 'Unknown';
-  
+
   const typingUsers = Object.entries(chat.typing || {})
     .filter(([uid, isTyping]) => isTyping && uid !== currentUser?.uid)
     .map(([uid]) => users.find(u => u.uid === uid || u.id === uid)?.displayName?.split(' ')[0])
@@ -460,92 +457,99 @@ export function ChatWindow() {
 
   let typingText = '';
   if (typingUsers.length > 0) {
-     if (chat.type === 'direct') {
-         typingText = 'typing...';
-     } else {
-         if (typingUsers.length === 1) {
-             typingText = `${typingUsers[0]} is typing...`;
-         } else if (typingUsers.length === 2) {
-             typingText = `${typingUsers[0]} and ${typingUsers[1]} are typing...`;
-         } else {
-             typingText = 'Several people are typing...';
-         }
-     }
+    if (chat.type === 'direct') {
+      typingText = 'typing...';
+    } else {
+      if (typingUsers.length === 1) {
+        typingText = `${typingUsers[0]} is typing...`;
+      } else if (typingUsers.length === 2) {
+        typingText = `${typingUsers[0]} and ${typingUsers[1]} are typing...`;
+      } else {
+        typingText = 'Several people are typing...';
+      }
+    }
   }
 
   let headerSubText = '';
   if (chat.type === 'group') {
-     headerSubText = typingText || `${chat.participants.length} participants`;
+    headerSubText = typingText || `${chat.participants.length} participants`;
   } else {
-     headerSubText = typingText || (otherUser?.isOnline ? 'online' : 'offline');
+    headerSubText = isAITyping ? 'typing...' : (typingText || (otherUser?.isOnline ? 'online' : 'offline'));
   }
 
   return (
-    <div className="flex-1 flex flex-col w-full h-full relative">
-      {/* Header */}
-      <header className="h-[60px] bg-[#f0f2f5] px-4 flex items-center justify-between border-b border-[#d1d7db] z-10">
-        <div className="flex items-center cursor-pointer flex-1" onClick={() => {/* Open Info */}}>
-          <button className="md:hidden text-[#54656f] mr-2" onClick={(e) => { e.stopPropagation(); setSelectedChatId(null); }}>
-             <ArrowLeft className="w-6 h-6" />
-          </button>
-          
-          {otherUser?.id === 'meta-ai' ? (
-              <div className="w-10 h-10 rounded-full mr-3 bg-gradient-to-tr from-blue-500 via-indigo-500 to-purple-500 ring-2 ring-offset-1 ring-purple-400 p-[1px]">
-                  <img src="https://cdn-icons-png.flaticon.com/512/4712/4712038.png" alt="" className="w-full h-full rounded-full object-cover" />
+    <div className="flex-1 flex flex-row w-full h-full relative overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Header */}
+        <header className="h-[60px] bg-[#f0f2f5] px-4 flex items-center justify-between border-b border-[#d1d7db] z-10">
+          <div className="flex items-center cursor-pointer flex-1" onClick={() => setIsInfoOpen(!isInfoOpen)}>
+            <button className="md:hidden text-[#54656f] mr-2" onClick={(e) => { e.stopPropagation(); setSelectedChatId(null); }}>
+               <ArrowLeft className="w-6 h-6" />
+            </button>
+            
+            {otherUser?.id === 'meta-ai' ? (
+                <div className="w-10 h-10 rounded-full mr-3 bg-gradient-to-tr from-blue-500 via-indigo-500 to-purple-500 ring-2 ring-offset-1 ring-purple-400 p-[1px]">
+                    <img src="https://cdn-icons-png.flaticon.com/512/4712/4712038.png" alt="" className="w-full h-full rounded-full object-cover" />
+                </div>
+            ) : otherUser?.photoURL ? (
+              <img src={otherUser.photoURL} alt="" className="w-10 h-10 rounded-full mr-3" />
+            ) : (
+              <div className="w-10 h-10 rounded-full bg-[#00a884] flex items-center justify-center text-white mr-3">
+                <span className="text-sm font-bold">{chatName.substring(0, 2).toUpperCase()}</span>
               </div>
-          ) : otherUser?.photoURL ? (
-            <img src={otherUser.photoURL} alt="" className="w-10 h-10 rounded-full mr-3" />
-          ) : (
-            <div className="w-10 h-10 rounded-full bg-[#00a884] flex items-center justify-center text-white mr-3">
-              <span className="text-sm font-bold">{chatName.substring(0, 2).toUpperCase()}</span>
+            )}
+            
+            <div>
+              <h2 className="text-[16px] font-medium leading-tight text-[#111b21]">{chatName}</h2>
+              <p className="text-xs text-[#667781]">{headerSubText}</p>
             </div>
-          )}
-          
-          <div>
-            <h2 className="text-[16px] font-medium leading-tight text-[#111b21]">{chatName}</h2>
-            <p className="text-xs text-[#667781]">{headerSubText}</p>
           </div>
-        </div>
-        <div className="flex space-x-6 text-[#54656f]">
-          <button 
-             className="hover:text-[#111b21] transition-colors" 
-             title="Voice Call"
-             onClick={async () => {
-                if (!currentUser || !otherUserId || isBlocked) return;
-                const callId = await callService.initiateCall(currentUser.uid, otherUserId, 'voice');
-                setActiveCall({ id: callId, type: 'voice' });
-             }}
-          >
-            <Phone className="w-5 h-5" />
-          </button>
-          <button 
-             className="hover:text-[#111b21] transition-colors" 
-             title="Video Call"
-             onClick={async () => {
-                if (!currentUser || !otherUserId || isBlocked) return;
-                const callId = await callService.initiateCall(currentUser.uid, otherUserId, 'video');
-                setActiveCall({ id: callId, type: 'video' });
-             }}
-          >
-            <Video className="w-5 h-5" />
-          </button>
-          <button className="hover:text-[#111b21] transition-colors" title="Search">
-            <Search className="w-5 h-5" />
-          </button>
-          <div className="relative">
-             <button className="hover:text-[#111b21] transition-colors" title="More info" onClick={() => setIsHeaderMenuOpen(!isHeaderMenuOpen)}>
-                 <MoreVertical className="w-5 h-5" />
-             </button>
-             {isHeaderMenuOpen && (
-                <div className="absolute top-8 right-0 bg-white rounded-lg shadow-xl border border-gray-100 py-2 z-50 w-56 animate-in slide-in-from-top-2">
-                    {chat?.type === 'group' && (
-                        <button className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 text-gray-700" onClick={() => {
-                            setIsHeaderMenuOpen(false);
-                            setIsGroupManageOpen(true);
-                        }}>
-                            Add member
-                        </button>
-                    )}
+          <div className="flex space-x-6 text-[#54656f]">
+            <button 
+               className="hover:text-[#111b21] transition-colors" 
+               title="Voice Call"
+               onClick={async () => {
+                  if (!currentUser || !otherUserId || isBlocked) return;
+                  const callId = await callService.initiateCall(currentUser.uid, otherUserId, 'voice');
+                  setActiveCall({ id: callId, type: 'voice' });
+               }}
+            >
+              <Phone className="w-5 h-5" />
+            </button>
+            <button 
+               className="hover:text-[#111b21] transition-colors" 
+               title="Video Call"
+               onClick={async () => {
+                  if (!currentUser || !otherUserId || isBlocked) return;
+                  const callId = await callService.initiateCall(currentUser.uid, otherUserId, 'video');
+                  setActiveCall({ id: callId, type: 'video' });
+               }}
+            >
+              <Video className="w-5 h-5" />
+            </button>
+            <button className="hover:text-[#111b21] transition-colors" title="Search">
+              <Search className="w-5 h-5" />
+            </button>
+            <div className="relative">
+               <button className="hover:text-[#111b21] transition-colors" title="More info" onClick={() => setIsHeaderMenuOpen(!isHeaderMenuOpen)}>
+                   <MoreVertical className="w-5 h-5" />
+               </button>
+               {isHeaderMenuOpen && (
+                  <div className="absolute top-8 right-0 bg-white rounded-lg shadow-xl border border-gray-100 py-2 z-50 w-56 animate-in slide-in-from-top-2">
+                      <button className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 text-gray-700 font-medium border-b" onClick={() => {
+                          setIsHeaderMenuOpen(false);
+                          setIsInfoOpen(true);
+                      }}>
+                          Contact info
+                      </button>
+                      {chat?.type === 'group' && (
+                          <button className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 text-gray-700" onClick={() => {
+                              setIsHeaderMenuOpen(false);
+                              setIsGroupManageOpen(true);
+                          }}>
+                              Add member
+                          </button>
+                      )}
                     <button className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 text-gray-700" onClick={() => {
                         setIsHeaderMenuOpen(false);
                         handleUserPreference('pinnedChats', selectedChatId, isPinned);
@@ -898,6 +902,56 @@ export function ChatWindow() {
               currentParticipants={chat.participants} 
               onClose={() => setIsGroupManageOpen(false)} 
           />
+      )}
+      </div>
+
+      {/* Info Sidebar */}
+      {isInfoOpen && (
+          <div className="w-[400px] border-l border-[#d1d7db] bg-[#f0f2f5] flex flex-col h-full animate-in slide-in-from-right duration-300">
+              <div className="h-[60px] bg-[#f0f2f5] px-4 flex items-center border-b border-[#d1d7db]">
+                  <button onClick={() => setIsInfoOpen(false)} className="mr-6 text-[#54656f]">
+                      <X className="w-6 h-6" />
+                  </button>
+                  <h3 className="text-base text-[#111b21] font-medium">Contact info</h3>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto">
+                  <div className="bg-white flex flex-col items-center py-7 px-4 shadow-sm mb-2">
+                       {otherUser?.photoURL ? (
+                          <img src={otherUser.photoURL} alt="" className="w-48 h-48 rounded-full mb-4 shadow-sm" />
+                       ) : (
+                          <div className="w-48 h-48 rounded-full bg-emerald-500 flex items-center justify-center text-white text-5xl font-bold mb-4">
+                              {chatName.substring(0, 1).toUpperCase()}
+                          </div>
+                       )}
+                       <h2 className="text-2xl text-[#111b21] mb-1">{chatName}</h2>
+                       <div className="text-[#667781] text-sm">
+                           {otherUser?.phoneNumber || otherUser?.email}
+                       </div>
+                  </div>
+
+                  <div className="bg-white p-4 shadow-sm mb-2">
+                      <div className="text-[14px] text-[#667781] mb-1">About</div>
+                      <div className="text-[17px] text-[#111b21]">Hey there! I am using WhatsApp.</div>
+                  </div>
+
+                  {otherUser?.phoneNumber && (
+                      <div className="bg-white p-4 shadow-sm mb-2">
+                          <div className="text-[14px] text-[#667781] mb-1">Phone number</div>
+                          <div className="text-[17px] text-[#111b21]">{otherUser.phoneNumber}</div>
+                      </div>
+                  )}
+
+                  <div className="bg-white shadow-sm mb-2">
+                      <button className="w-full flex items-center gap-4 px-4 py-4 hover:bg-[#f0f2f5] text-red-500 font-medium transition-colors" onClick={() => handleUserPreference('blockedUsers', otherUser!.id, isBlocked)}>
+                          {isBlocked ? 'Unblock user' : 'Block user'}
+                      </button>
+                      <button className="w-full flex items-center gap-4 px-4 py-4 hover:bg-[#f0f2f5] text-red-500 font-medium transition-colors border-t border-gray-50">
+                          Report user
+                      </button>
+                  </div>
+              </div>
+          </div>
       )}
     </div>
   );

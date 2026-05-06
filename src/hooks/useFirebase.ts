@@ -10,6 +10,7 @@ export interface UserProfile {
   id: string;
   displayName: string;
   email: string;
+  phoneNumber?: string;
   photoURL: string;
   isOnline: boolean;
   lastSeen?: any;

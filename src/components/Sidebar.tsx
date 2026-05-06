@@ -18,6 +18,51 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
   const { currentUser, currentUserDoc, selectedChatId, setSelectedChatId } = useAppStore();
   const chats = useChats(currentUser?.uid);
   const users = useUsers();
+
+  const unifiedList = useMemo(() => {
+    if (!currentUser) return [];
+
+    // Filter out current user from all users
+    const allOtherUsers = users.filter(u => u.id !== currentUser.uid);
+
+    // Get IDs of users we already have a direct chat with
+    const directChatUserIds = new Set(
+      chats
+        .filter(c => c.type === 'direct')
+        .flatMap(c => c.participants.filter(p => p !== currentUser.uid))
+    );
+
+    // Users who don't have a chat yet
+    const nonChattedUsers = allOtherUsers.filter(u => !directChatUserIds.has(u.id));
+
+    // Convert non-chatted users to "virtual chat" objects
+    const virtualChats = nonChattedUsers.map(u => ({
+      id: `virtual-${u.id}`,
+      type: 'direct' as const,
+      participants: [currentUser.uid, u.id],
+      updatedAt: null,
+      lastMessage: u.phoneNumber || u.email || 'Start a conversation',
+      isVirtual: true,
+      otherUser: u
+    }));
+
+    // Combine actual chats with virtual chats
+    // Meta AI is already handled in displayUsers for starting chats, but let's ensure it's in the main list too if requested
+    // "ALL USERS AUTOMATIC COME"
+    
+    const actualChatsWithUsers = chats.map(c => {
+        const otherUserId = c.participants.find(p => p !== currentUser.uid);
+        const otherUser = users.find(u => u.id === otherUserId);
+        return { ...c, otherUser };
+    });
+
+    return [...actualChatsWithUsers, ...virtualChats].sort((a, b) => {
+        if (a.updatedAt && b.updatedAt) return b.updatedAt.toMillis() - a.updatedAt.toMillis();
+        if (a.updatedAt) return -1;
+        if (b.updatedAt) return 1;
+        return (a.otherUser?.displayName || '').localeCompare(b.otherUser?.displayName || '');
+    });
+  }, [chats, users, currentUser]);
   
   const [isNewChatOpen, setIsNewChatOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -180,38 +225,52 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
       <div className="flex-1 overflow-hidden relative">
         {/* @ts-ignore */}
         <AutoSizer>
-          {({ height, width }: any) => (
-            <FixedSizeList
-              height={height}
-              itemCount={chats.length}
-              itemSize={72}
-              width={width}
-              itemData={{
-                chats,
-                currentUser,
-                users,
-                selectedChatId,
-                setSelectedChatId,
-              }}
-            >
+          {({ height, width }: any) => {
+            if (!height || !width) return null;
+            return (
+              <FixedSizeList
+                key={`chats-list-${unifiedList.length}`}
+                height={height}
+                itemCount={unifiedList.length}
+                itemSize={72}
+                width={width}
+                itemData={{
+                  unifiedList,
+                  currentUser,
+                  users,
+                  selectedChatId,
+                  setSelectedChatId,
+                  handleStartChat
+                }}
+              >
               {({ index, style, data }) => {
-                const chat = data.chats[index];
+                const item = data.unifiedList[index];
                 const currentUser = data.currentUser;
-                const users = data.users;
                 const selectedChatId = data.selectedChatId;
                 const setSelectedChatId = data.setSelectedChatId;
+                const handleStartChat = data.handleStartChat;
                 
-                const otherUserId = chat.participants.find((p: string) => p !== currentUser?.uid);
-                const otherUser = users.find((u: any) => u.id === otherUserId);
-                const isSelected = selectedChatId === chat.id;
+                const otherUser = item.otherUser || (item.id === 'meta-ai' ? {
+                  id: 'meta-ai',
+                  displayName: 'Meta AI',
+                  photoURL: 'https://cdn-icons-png.flaticon.com/512/4712/4712038.png'
+                } : null);
+                
+                const isSelected = selectedChatId === item.id;
                 
                 return (
                   <div 
                     style={style}
-                    onClick={() => setSelectedChatId(chat.id)}
+                    onClick={() => {
+                        if (item.isVirtual) {
+                            handleStartChat(otherUser.id);
+                        } else {
+                            setSelectedChatId(item.id);
+                        }
+                    }}
                     className={`flex items-center px-3 py-3 cursor-pointer transition-colors border-b border-[#f0f2f5] ${isSelected ? 'bg-[#ebebeb]' : 'hover:bg-[#f5f6f6] bg-white'}`}
                   >
-                    {chat.type === 'group' ? (
+                    {item.type === 'group' ? (
                       <div className="w-12 h-12 rounded-full bg-gray-300 mr-3 flex items-center justify-center flex-shrink-0 text-white">
                         <span className="text-xl">👥</span>
                       </div>
@@ -224,22 +283,24 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
                     )}
                     <div className="flex-1 min-w-0 pb-1">
                       <div className="flex justify-between items-baseline mb-1">
-                        <h3 className="text-[16px] font-medium truncate text-[#111b21]">{chat.name || otherUser?.displayName || 'Unknown'}</h3>
-                        {chat.updatedAt && (
+                        <h3 className="text-[16px] font-medium truncate text-[#111b21]">{item.name || otherUser?.displayName || 'Unknown'}</h3>
+                        {item.updatedAt && (
                           <span className="text-xs text-[#667781]">
-                            {format(chat.updatedAt?.toDate() || new Date(), 'HH:mm')}
+                            {format(item.updatedAt?.toDate() || new Date(), 'HH:mm')}
                           </span>
                         )}
                       </div>
                       <div className="text-sm text-[#667781] truncate">
-                        {chat.typing?.[otherUserId || ''] ? <span className="text-[#00a884]">typing...</span> : (chat.type === 'direct' ? (otherUser?.statusMessage || chat.lastMessage || 'Start a conversation') : (chat.lastMessage || 'Start a conversation'))}
+                        {item.otherUser?.phoneNumber && <span className="text-xs text-gray-400 mr-1">[{item.otherUser.phoneNumber}]</span>}
+                        {item.typing?.[otherUser?.id || ''] ? <span className="text-[#00a884]">typing...</span> : (item.type === 'direct' ? (otherUser?.statusMessage || item.lastMessage || 'Start a conversation') : (item.lastMessage || 'Start a conversation'))}
                       </div>
                     </div>
                   </div>
                 );
               }}
             </FixedSizeList>
-          )}
+            );
+          }}
         </AutoSizer>
       </div>
 
@@ -334,20 +395,23 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
           <div className="flex-1 overflow-hidden relative">
             {/* @ts-ignore */}
             <AutoSizer>
-              {({ height, width }: any) => (
-                <FixedSizeList
-                  height={height}
-                  itemCount={displayUsers.length}
-                  itemSize={72}
-                  width={width}
-                  itemData={{
-                    displayUsers,
-                    creatingType,
-                    selectedGroupParticipants,
-                    setSelectedGroupParticipants,
-                    handleStartChat,
-                  }}
-                >
+              {({ height, width }: any) => {
+                if (!height || !width) return null;
+                return (
+                  <FixedSizeList
+                    key={`display-users-list-${displayUsers.length}`}
+                    height={height}
+                    itemCount={displayUsers.length}
+                    itemSize={72}
+                    width={width}
+                    itemData={{
+                      displayUsers,
+                      creatingType,
+                      selectedGroupParticipants,
+                      setSelectedGroupParticipants,
+                      handleStartChat,
+                    }}
+                  >
                   {({ index, style, data }) => {
                     const user = data.displayUsers[index];
                     const creatingType = data.creatingType;
@@ -390,7 +454,8 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
                     );
                   }}
                 </FixedSizeList>
-              )}
+                );
+              }}
             </AutoSizer>
           </div>
           
@@ -426,6 +491,11 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
             <div className="bg-white p-6 shadow-sm mb-2">
               <div className="text-sm text-[#008069] font-medium mb-2">Your Name</div>
               <div className="text-[17px] text-[#111b21]">{currentUserDoc?.displayName || currentUser?.displayName}</div>
+            </div>
+
+            <div className="bg-white p-6 shadow-sm mb-2">
+              <div className="text-sm text-[#008069] font-medium mb-2">Phone Number</div>
+              <div className="text-[17px] text-[#111b21]">{currentUserDoc?.phoneNumber || 'Not provided'}</div>
             </div>
 
             <div className="bg-white p-6 shadow-sm mb-2">
