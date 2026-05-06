@@ -11,7 +11,12 @@
         "isOnline": { "type": "boolean", "description": "Presence status" },
         "lastSeen": { "type": "timestamp", "description": "Last time user was active" },
         "shortId": { "type": "string", "description": "5-digit short id" },
-        "statusMessage": { "type": "string", "description": "User's custom status message" }
+        "statusMessage": { "type": "string", "description": "User's custom status message" },
+        "phoneNumber": { "type": "string", "description": "User's phone number" },
+        "blockedUsers": { "type": "array", "items": { "type": "string" } },
+        "archivedChats": { "type": "array", "items": { "type": "string" } },
+        "pinnedChats": { "type": "array", "items": { "type": "string" } },
+        "lockedChats": { "type": "array", "items": { "type": "string" } }
       },
       "required": ["displayName", "email"]
     },

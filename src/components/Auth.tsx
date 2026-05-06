@@ -30,6 +30,8 @@ export function Auth() {
             setError('Incorrect password. Please try again.');
           } else if (err.code === 'auth/invalid-credential') {
             setError('Invalid credentials. Check your email and password.');
+          } else if (err.code === 'auth/operation-not-allowed') {
+            setError('Email login is not enabled in Firebase. Please enable "Email/Password" in your Firebase console under Authentication > Sign-in method.');
           } else {
             setError(err.message || 'Login failed');
           }
@@ -42,7 +44,11 @@ export function Auth() {
       }
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'Authentication failed');
+      if (err.code === 'auth/operation-not-allowed') {
+        setError('Email/Password registration is not enabled in Firebase. Please enable it in the Firebase console.');
+      } else {
+        setError(err.message || 'Authentication failed');
+      }
     } finally {
       setLoading(false);
     }
